@@ -92,5 +92,5 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# uvicorn main_byte:app --reload --port 8090
+# uvicorn MTVS3_Final_AI.main_byte:app --reload --port 8090
 # ngrok http 8090 --domain adapted-charmed-panda.ngrok-free.app
