@@ -67,5 +67,5 @@ async def verify_faces(url1: str = Form(...), url2: str = Form(...)):
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# uvicorn MTVS3_Final_AI.model_kind.url_main:app --reload --port 8090
+# uvicorn MTVS3_Final_AI.send_kind.url_main:app --reload --port 8090
 # ngrok http 8090 --domain adapted-charmed-panda.ngrok-free.app

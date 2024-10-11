@@ -62,5 +62,5 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
     except Exception as e:
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
-# uvicorn MTVS3_Final_AI.model_kind.byte_main:app --reload --port 8090
+# uvicorn MTVS3_Final_AI.send_kind.byte_main:app --reload --port 8090
 # ngrok http 8090 --domain adapted-charmed-panda.ngrok-free.app
