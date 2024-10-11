@@ -75,5 +75,5 @@ async def verify_faces(request: CalculateFaceRequestDTO):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# uvicorn facenet:app --reload --port 8090
+# uvicorn MTVS3_Final_AI.model_kind.facenet:app --reload --port 8090
 # ngrok http 8090 --domain adapted-charmed-panda.ngrok-free.app
