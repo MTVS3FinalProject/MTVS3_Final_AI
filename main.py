@@ -25,19 +25,21 @@ mp_drawing = mp.solutions.drawing_utils
 
 TARGET_SIZE = (224, 224)
 
-# 얼굴 검출 및 얼굴 영역 추출 함수 (MediaPipe 사용)
+# 얼굴 검출 및 얼굴 영역 추출 함수 (MediaPipe 사용 + 그레이스케일 변환 추가)
 def detect_face(image):
-    with mp_face_detection.FaceDetection(min_detection_confidence=0.5) as face_detection:
-        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-        results = face_detection.process(img)
+    with mp_face_detection.FaceDetection(min_detection_confidence=0.7) as face_detection:
+        # 이미지를 그레이스케일로 변환
+        img = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2GRAY)
+        img_bgr = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)  # DeepFace는 BGR 이미지를 사용하므로 다시 BGR로 변환
+        results = face_detection.process(img_bgr)
 
         if results.detections:
             detection = results.detections[0]
             bboxC = detection.location_data.relative_bounding_box
-            h, w, _ = img.shape
+            h, w, _ = img_bgr.shape
             bbox = int(bboxC.xmin * w), int(bboxC.ymin * h), \
                    int(bboxC.width * w), int(bboxC.height * h)
-            face_img = img[bbox[1]:bbox[1] + bbox[3], bbox[0]:bbox[0] + bbox[2]]
+            face_img = img_bgr[bbox[1]:bbox[1] + bbox[3], bbox[0]:bbox[0] + bbox[2]]
             return face_img
         else:
             return None
@@ -88,10 +90,11 @@ def load_image_from_url(url):
 @app.post("/verification")
 async def verify_faces(request: dict):
     try:
-        # URL에서 이미지 불러오기
+        # JSON 형식으로 URL 받기
         origin_img_url = request.get("originImg")
         current_img_url = request.get("currentImg")
         
+        # URL에서 이미지 로드
         img1 = load_image_from_url(origin_img_url)
         img2 = load_image_from_url(current_img_url)
 
