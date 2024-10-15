@@ -43,6 +43,22 @@ def detect_face(image):
         else:
             return None
 
+# 안티 스푸핑 검사 함수 (Laplacian 변수를 사용한 텍스처 분석)
+def anti_spoofing_check(image):
+    try:
+        # Laplacian 변수를 계산하여 이미지의 텍스처 분석
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        laplacian_var = cv2.Laplacian(gray_image, cv2.CV_64F).var()
+
+        # 일반적인 스푸핑 이미지의 경우, Laplacian 값이 낮음
+        if laplacian_var < 100:  # 이 값은 조정 가능
+            logging.warning("안티 스푸핑 경고: 스푸핑 이미지로 의심됨.")
+            return False  # 스푸핑 이미지로 간주
+        return True
+    except Exception as e:
+        logging.error(f"안티 스푸핑 검사 실패: {str(e)}")
+        return False
+
 # 얼굴 임베딩 추출 함수 (모델명 반환)
 def get_face_embedding(image, img_name):
     model_name = "Facenet"  # 모델 이름 지정
@@ -50,6 +66,11 @@ def get_face_embedding(image, img_name):
         face_img = detect_face(image)
         if face_img is None:
             logging.error(f"얼굴을 찾을 수 없습니다 ({img_name}).")
+            return None, model_name
+
+        # 안티 스푸핑 검사
+        if not anti_spoofing_check(face_img):
+            logging.error(f"스푸핑이 의심되는 이미지입니다 ({img_name}).")
             return None, model_name
 
         img_resized = cv2.resize(face_img, TARGET_SIZE)
