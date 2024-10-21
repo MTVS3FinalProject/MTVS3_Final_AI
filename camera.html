@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blink to Capture Photo</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+        }
+        video, canvas {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <video id="videoInput" style="display:none;"></video>
+    <canvas id="outputCanvas"></canvas>
+
+    <script>
+        const videoElement = document.getElementById('videoInput');
+        const canvasElement = document.getElementById('outputCanvas');
+        const canvasCtx = canvasElement.getContext('2d');
+
+        let blinkCount = 0;
+        let lastBlinkTime = 0;
+        let eyeClosed = false;
+        let photoTimeout;
+
+        const faceMesh = new FaceMesh({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`,
+        });
+
+        faceMesh.setOptions({
+            maxNumFaces: 1,
+            refineLandmarks: true,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        faceMesh.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await faceMesh.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+
+        camera.start();
+
+        const leftEyeUpper = [159];
+        const leftEyeLower = [145];
+        const rightEyeUpper = [386];
+        const rightEyeLower = [374];
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+            canvasCtx.translate(canvasElement.width, 0);
+            canvasCtx.scale(-1, 1);
+
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiFaceLandmarks) {
+                for (const landmarks of results.multiFaceLandmarks) {
+                    const leftEyeOpen = isEyeOpen(landmarks, leftEyeUpper, leftEyeLower);
+                    const rightEyeOpen = isEyeOpen(landmarks, rightEyeUpper, rightEyeLower);
+
+                    if (!leftEyeOpen && !rightEyeOpen && !eyeClosed) {
+                        eyeClosed = true;
+                        const currentTime = new Date().getTime();
+                        if (currentTime - lastBlinkTime > 500) {  // 0.5초 이후에만 카운트
+                            blinkCount++;
+                            lastBlinkTime = currentTime;
+                            console.log(`Blink count: ${blinkCount}`);
+
+                            if (blinkCount === 2) { // 눈 깜빡임 수 2번으로 정함
+                                photoTimeout = setTimeout(() => {
+                                    takePhoto(results.image);
+                                }, 1000);
+                                blinkCount = 0;
+                            }
+                        }
+                    }
+
+                    if (leftEyeOpen || rightEyeOpen) {
+                        eyeClosed = false;
+                    }
+                }
+            }
+            canvasCtx.restore();
+        }
+
+        function isEyeOpen(landmarks, upperIndices, lowerIndices) {
+            const upper = landmarks[upperIndices[0]];
+            const lower = landmarks[lowerIndices[0]];
+
+            const eyeHeight = Math.abs(upper.y - lower.y);
+            return eyeHeight > 0.015; // 눈이 얼마나 열려있는지 확인하는 임계값 이거에 따라 눈을 얼마나 크게 열고 닫고를 정하는거
+        }
+
+        function takePhoto(image) {
+            const link = document.createElement('a');
+            link.download = 'photo.png';
+            link.href = canvasElement.toDataURL();
+            link.click();
+            console.log('Photo captured!');
+        }
+
+        window.addEventListener('resize', () => {
+            canvasElement.width = window.innerWidth;
+            canvasElement.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
