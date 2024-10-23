@@ -22,6 +22,7 @@ logging.basicConfig(
 # MediaPipe Face Detection 모델 초기화
 mp_face_detection = mp.solutions.face_detection
 mp_drawing = mp.solutions.drawing_utils
+mp_face_mesh = mp.solutions.face_mesh
 
 TARGET_SIZE = (224, 224)
 
@@ -112,6 +113,34 @@ def calculate_similarity(embedding1, embedding2):
         logging.error("유사도 계산 실패")
         return None
 
+# 마스크 착용 여부 감지 함수 (FaceMesh 사용)
+def mask_detection(image):
+    try:
+        with mp_face_mesh.FaceMesh(min_detection_confidence=0.7, min_tracking_confidence=0.7) as face_mesh:
+            img_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            results = face_mesh.process(img_rgb)
+
+            if results.multi_face_landmarks:
+                for face_landmarks in results.multi_face_landmarks:
+                    # 코와 입의 랜드마크 (코: 1, 입: 13, 14, 15 등의 인덱스)
+                    nose_tip = face_landmarks.landmark[1]  # 코 끝 부분
+                    mouth_upper = face_landmarks.landmark[13]  # 입 윗부분
+                    mouth_lower = face_landmarks.landmark[14]  # 입 아랫부분
+
+                    # 코와 입의 랜드마크가 제대로 보이는지 확인
+                    if abs(nose_tip.y - mouth_upper.y) < 0.05:  # 코와 입 사이의 거리가 너무 짧다면 마스크가 있는 것
+                        logging.warning("마스크가 착용된 것으로 의심됩니다.")
+                        return False  # 마스크 착용 의심
+
+                logging.info("마스크 착용 감지되지 않음.")
+                return True  # 마스크 미착용 (정상 얼굴)
+            else:
+                logging.error("FaceMesh 랜드마크를 찾을 수 없습니다.")
+                return False
+    except Exception as e:
+        logging.error(f"마스크 감지 중 오류 발생: {str(e)}")
+        return False
+
 # URL에서 이미지를 불러오는 함수
 def load_image_from_url(url):
     try:
@@ -170,7 +199,7 @@ async def verify_faces(request: dict):
         raise HTTPException(status_code=500, detail=str(e))
 
 # 회원가입 시 제출된 이미지가 사람인지 확인하는 엔드포인트
-@app.post("/verificationimage")
+@app.post("/recognition")
 async def verify_image(request: dict):
     try:
         # JSON 형식으로 URL 받기
@@ -189,15 +218,20 @@ async def verify_image(request: dict):
         face_img = detect_face(img)
         if face_img is None:
             logging.error("얼굴을 찾을 수 없습니다.")
-            raise HTTPException(status_code=400, detail="얼굴을 찾을 수 없습니다. 사람이 아닐 가능성이 높습니다.")
+            return {"message": "얼굴을 찾을 수 없습니다. 사람이 아닐 가능성이 높습니다.", "result": 0}
+
+        # 마스크 착용 여부 감지
+        if not mask_detection(face_img):
+            logging.error("마스크가 감지되었습니다. 검증 실패.")
+            return {"message": "마스크가 감지되었습니다. 얼굴을 확인할 수 없습니다.", "result": 0}
 
         # 안티 스푸핑 검사
         if not anti_spoofing_check(face_img):
             logging.error("스푸핑이 의심되는 이미지입니다.")
-            raise HTTPException(status_code=400, detail="스푸핑이 의심됩니다. 사진이 사람인지 확인하세요.")
+            return {"message": "스푸핑이 의심됩니다. 사진이 사람인지 확인하세요.", "result": 0}
 
         logging.info("사람 얼굴이 검증되었습니다.")
-        return {"message": "사람 얼굴이 확인되었습니다."}
+        return {"message": "사람 얼굴이 확인되었습니다.", "result": 1}
 
     except Exception as e:
         logging.error(f"서버 오류: {str(e)}")
