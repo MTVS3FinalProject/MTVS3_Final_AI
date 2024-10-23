@@ -43,15 +43,29 @@ def detect_face(image):
         else:
             return None
 
-# 안티 스푸핑 검사 함수 (Laplacian 변수를 사용한 텍스처 분석)
 def anti_spoofing_check(image):
     try:
-        # Laplacian 변수를 계산하여 이미지의 텍스처 분석
+        # Laplacian 변수를 계산하여 이미지의 텍스처 분석 (선명도 확인)
         gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         laplacian_var = cv2.Laplacian(gray_image, cv2.CV_64F).var()
 
-        # 일반적인 스푸핑 이미지의 경우, Laplacian 값이 낮음
-        if laplacian_var < 100:  # 이 값은 조정 가능
+        # 조명 분석: 평균 밝기와 분산을 사용하여 반사광 패턴 분석
+        brightness_mean = np.mean(gray_image)
+        brightness_std = np.std(gray_image)
+
+        # RGB 채널 간 비율을 확인하여 사진의 품질 및 위조 여부 판단
+        mean_r = np.mean(image[:, :, 2])  # Red 채널
+        mean_g = np.mean(image[:, :, 1])  # Green 채널
+        mean_b = np.mean(image[:, :, 0])  # Blue 채널
+
+        # 일반적으로 자연스러운 얼굴 사진에서 RGB 비율이 일정하게 유지됨
+        # 특정 비율이 크게 벗어나면 비정상적인 조명이나 재촬영된 이미지일 가능성이 있음
+        if abs(mean_r - mean_g) > 15 or abs(mean_g - mean_b) > 15:
+            logging.warning("RGB 채널 비율이 비정상적입니다. 스푸핑이 의심됩니다.")
+            return False
+
+        # 조명 분석 및 텍스처 분석 기준
+        if laplacian_var < 100 or brightness_std < 20:
             logging.warning("안티 스푸핑 경고: 스푸핑 이미지로 의심됨.")
             return False  # 스푸핑 이미지로 간주
         return True
@@ -136,5 +150,49 @@ async def verify_faces(file1: UploadFile = File(...), file2: UploadFile = File(.
         logging.error(f"서버 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# uvicorn main_byte:app --reload --port 8090
-# ngrok http 8090 --domain adapted-charmed-panda.ngrok-free.app
+@app.post("/verificationimage")
+async def verify_image(file: UploadFile = File(...)):
+    try:
+        # 이미지 로드
+        img = Image.open(BytesIO(await file.read()))
+        img = np.array(img)
+
+        # 얼굴 검출
+        face_img = detect_face(img)
+        if face_img is None:
+            logging.error("얼굴을 찾을 수 없습니다.")
+            raise HTTPException(status_code=400, detail="얼굴을 찾을 수 없습니다. 사람이 아닐 가능성이 높습니다.")
+
+        # 안티 스푸핑 검사
+        if not anti_spoofing_check(face_img):
+            logging.error("스푸핑이 의심되는 이미지입니다.")
+            raise HTTPException(status_code=400, detail="스푸핑이 의심됩니다. 사진이 사람인지 확인하세요.")
+
+        logging.info("사람 얼굴이 검증되었습니다.")
+        return {"message": "사람 얼굴이 확인되었습니다."}
+
+    except Exception as e:
+        logging.error(f"서버 오류: {str(e)}")
+        raise HTTPException(status_code=500, detail="서버 오류가 발생했습니다. 다시 시도해주세요.")
+
+# ---------------------------------- 수동 ----------------------------------
+# gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 127.0.0.1:8090
+# sudo systemctl start nginx
+# ngrok http 8080 --domain adapted-charmed-panda.ngrok-free.app
+# ---------------------------------- 수동 ----------------------------------
+
+# ---------------------------------- docker ----------------------------------
+# docker-compose up --build
+# sudo systemctl start nginx
+# ngrok http 8080 --domain adapted-charmed-panda.ngrok-free.app
+# ---------------------------------- docker ----------------------------------
+
+# ---------------------------------- nginx ----------------------------------
+# sudo systemctl start nginx <- 시작
+# sudo systemctl stop nginx <- 종료
+# sudo systemctl restart nginx <- 재시작
+# sudo systemctl status nginx <- nginx 상태 확인
+# ps aux | grep nginx <- nginx 프로세스 확인
+# ---------------------------------- nginx ----------------------------------
+
+# Nginx + Gunicorn + FastAPI + ngrok
