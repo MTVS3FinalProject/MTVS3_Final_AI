@@ -1,0 +1,54 @@
+version: '3'
+
+services:
+  app:
+    build: .
+    container_name: fastapi_app
+    ports:
+      - "8090:8090"
+    volumes:
+      - .:/app
+    command: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app --bind 0.0.0.0:8090
+    depends_on:
+      - comfyui
+    restart: always
+    networks:
+      - my_network
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx_proxy
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - app
+      - comfyui
+    command: ["nginx", "-g", "daemon off;"]
+    networks:
+      - my_network
+
+  comfyui:
+    build: .
+    container_name: comfyui_service
+    ports:
+      - "8188:8188"
+    volumes:
+      - /home/younghwan/projects/ComfyUI/models/checkpoints:/app/ComfyUI/models/checkpoints
+      - /home/younghwan/projects/ComfyUI/models/loras:/app/ComfyUI/models/loras
+      - /home/younghwan/projects/ComfyUI/custom_nodes:/app/ComfyUI/custom_nodes
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - CUDA_HOME=/usr/local/cuda
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/extras/CUPTI/lib64:/usr/lib/x86_64-linux-gnu
+    command: ["python3", "/app/ComfyUI/main.py", "--listen", "0.0.0.0"]
+    restart: always
+    networks:
+      - my_network
+
+networks:
+  my_network:
+    driver: bridge

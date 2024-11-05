@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+opencv-python
+numpy
+mediapipe
+deepface
+scikit-learn
+Pillow
+requests
+websocket-client
+gunicorn
