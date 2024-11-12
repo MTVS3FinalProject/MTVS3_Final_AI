@@ -14,12 +14,26 @@ import random
 import uuid
 import websocket
 import urllib
-import os
 import io
 import base64
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi import FastAPI, Request
+from langchain_openai import ChatOpenAI
+from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # .env 파일 로드
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
 
 app = FastAPI()
+
+# OpenAI API 키 설정
+os.environ["OPENAI_API_KEY"] = openai_api_key
+
+# GPT 기반의 Chat 모델 설정
+gpt = ChatOpenAI(model="gpt-4o-mini")
 
 # 로그 설정
 logging.basicConfig(
@@ -39,6 +53,8 @@ TARGET_SIZE = (224, 224)
 BASE_DIR = "./BASE_DIR"  # BASE_DIR을 명시적으로 정의
 os.makedirs(BASE_DIR, exist_ok=True)
 
+# 127.0.0.1:8188
+# comfyui_service
 server_address = "comfyui_service:8188"  # 서비스 이름으로 수정
 client_id = str(uuid.uuid4())
 
@@ -85,23 +101,109 @@ def get_images(ws, prompt):
 
     return output_images
 
-def load_image(color, style, filename):
-    with open("./final_back2_X.json", "r", encoding="utf-8") as f:
-        workflow_data = f.read()
+async def generate_prompt(question: str) -> str:
+    """
+    이미지 생성용 프롬프트를 생성하는 함수.
+    
+    Parameters:
+        question (str): 사용자로부터 받은 질문
 
+    Returns:
+        str: GPT가 생성한 이미지 프롬프트
+    """
+    prompt_question = f'현재 나는 "{question}" 이러한 이미지 생성을 하려고 하는데 영어로 프롬프트를 짜줘.'
+    return gpt(prompt_question)
+
+async def load_image_chat(filename, question):
+    # JSON 파일 로드 및 설정
+    with open("./final_test.json", "r", encoding="utf-8") as f:
+        workflow_data = f.read()
     workflow = json.loads(workflow_data)
+
+    # 랜덤 시드 값 설정
     seed = random.randint(1, 1000000000)
     workflow["3"]["inputs"]["seed"] = seed
-    
-    workflow["6"]["inputs"]["text"] = f"""An image of a {style} cityscape with a focus on {color}.
-    The scene features a mix of modern and traditional architecture, illuminated by city lights and set against a {color} sky.
-    The city streets are bustling with activity, reflecting the vibrancy of the {style} design.
-    The overall mood highlights a dynamic urban atmosphere, emphasizing the {color} tone in the environment."""
 
+    # 프롬프트 생성
+    receive = await generate_prompt(question)
+    workflow["6"]["inputs"]["text"] = f"{receive}"
+
+    # WebSocket 연결
     ws = websocket.WebSocket()
-    ws.connect("ws://comfyui_service:8188/ws?clientId={}".format(client_id))  # 서비스 이름 사용
-    images = get_images(ws, workflow)  # workflow를 prompt로 전달
+    ws.connect(f"ws://{server_address}/ws?clientId={client_id}")
+    images = get_images(ws, workflow)
 
+    # 이미지 저장
+    file_path = None
+    for node_id in images:
+        for image_data in images[node_id]:
+            img = Image.open(io.BytesIO(image_data))
+            file_path = os.path.join(BASE_DIR, f'{filename}.png')
+            img.save(file_path, format="PNG")
+        
+    return file_path
+
+def load_image(filename):
+    # 가능한 color와 style 목록
+    colors1 = ["blue", "purple", "aqua", "teal"]  # 바다의 깊이와 맑음을 표현하는 색상들
+    colors2 = ["purple","orange", "pink", "red"]  # 일몰이나 일출을 표현하는 따뜻한 색상들
+
+    # 바다와 하늘을 표현하는 스타일들
+    style = [
+        "modern",         # 깔끔하고 세련된 현대적 느낌
+        "tropical",       # 열대 바다의 이국적 느낌
+        "minimalistic",   # 간결한 디자인으로 바다와 하늘의 분위기를 강조
+        "surreal",        # 비현실적인 색감과 형태로 독특한 느낌을 주는 초현실적 스타일
+        "abstract",       # 색감과 형태를 강조하는 추상적인 바다 표현
+        "vintage",        # 고풍스러운 색감과 질감으로 고요한 느낌의 바다
+        "impressionistic" # 명암과 색감이 강한 인상파 느낌의 바다
+    ]
+
+    # 프롬프트 템플릿 리스트
+    prompt_templates = [
+        "{colors1} waves with {colors2} reflections",
+        "{colors1} ocean with hints of {colors2} light",
+        "{colors1} sea stretching into the horizon, blending with {colors2} hues",
+        "{colors1} ocean meeting a {colors2} sky at the horizon",
+        "{colors1} water beneath a soft {colors2} sunset",
+        "{colors2} dawn sky mirrored on a {colors1} sea",
+        "{style} style, capturing the {colors1} tides and {colors2} sky",
+        "{style} seascape with a {colors1} ocean against a {colors2} sky",
+        "{style} art of the {colors1} sea with a contrasting {colors2} sky",
+        "{colors1} waves under a {colors2} twilight sky",
+        "{style} interpretation of a {colors2} dawn over {colors1} waters",
+        "{colors2} sunset casting a glow on the {colors1} ocean in a {style} design",
+        "{style} design showcasing {colors1} waters and a soft {colors2} sky",
+        "{colors1} waves rolling beneath a {colors2} sky in a {style} scene",
+        "{style} portrayal of {colors1} ocean depths under a {colors2} sky"
+    ]
+
+    chosen_template = random.choice(prompt_templates)
+    colors1 = random.choice(colors1)
+    colors2 = random.choice(colors2)
+    style = random.choice(style)
+
+    # 최종 프롬프트 생성
+    prompt = chosen_template.format(colors1=colors1, colors2=colors2, style=style)
+
+    # JSON 파일 로드 및 설정
+    with open("./final_test.json", "r", encoding="utf-8") as f:
+        workflow_data = f.read()
+    workflow = json.loads(workflow_data)
+
+    # 랜덤 시드 값 설정
+    seed = random.randint(1, 1000000000)
+    workflow["3"]["inputs"]["seed"] = seed
+
+    # prompt 설정
+    workflow["6"]["inputs"]["text"] = prompt
+
+    # WebSocket 연결
+    ws = websocket.WebSocket()
+    ws.connect(f"ws://{server_address}/ws?clientId={client_id}")
+    images = get_images(ws, workflow)
+
+    # 이미지 저장
     file_path = None
     for node_id in images:
         for image_data in images[node_id]:
@@ -322,18 +424,28 @@ async def verify_image(request: dict):
         logging.error(f"서버 오류: {str(e)}")
         raise HTTPException(status_code=500, detail=f"서버 오류가 발생했습니다: {str(e)}")
 
-@app.post("/img_generator", tags=["Image"])
-async def image_maker(color: str, style: str, filename: str):
-    load_image(color, style, filename)
-    return FileResponse(f'{BASE_DIR}/{filename}.png')
+@app.post("/img_random", tags=["Image"])
+async def image_maker_random():
+    # 고유한 파일명 생성 (예: UUID 기반)
+    unique_filename = str(uuid.uuid4())
+    file_path = load_image(unique_filename)
+    
+    # 파일이 제대로 생성되었는지 확인
+    if file_path and os.path.exists(file_path):
+        return FileResponse(file_path)
 
-@app.get("/get-image", tags=["Image"])
-async def api_get_image(filename: str):
-    # 이미지 파일 경로 생성
-    file_path = os.path.join(BASE_DIR, filename + '.png')
+    # 파일이 없으면 404 에러 반환
+    raise HTTPException(status_code=404, detail="File not found")
 
-    # 이미지 파일이 실제로 존재하는지 확인
-    if os.path.exists(file_path):
+# 이미지를 생성하는 엔드포인트
+@app.post("/img_chat", tags=["Image"])
+async def image_maker_chat(question: str):
+    # 고유한 파일명 생성 (예: UUID 기반)
+    unique_filename = str(uuid.uuid4())
+    file_path = await load_image_chat(unique_filename, question)
+    
+    # 파일이 제대로 생성되었는지 확인
+    if file_path and os.path.exists(file_path):
         return FileResponse(file_path)
 
     # 파일이 없으면 404 에러 반환
@@ -360,3 +472,7 @@ async def api_get_image(filename: str):
 # ---------------------------------- nginx ----------------------------------
 
 # Nginx + Gunicorn + FastAPI + ngrok
+
+# docker system prune -a --volumes -f
+
+# docker exec -it comfyui_service /bin/bash
